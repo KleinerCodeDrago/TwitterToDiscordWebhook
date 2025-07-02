@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
 // @match        https://x.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitter.com
+// @updateURL    https://git.katzenzungen.lol/ForgoAdmin/Twitter-to-discord/raw/branch/master/twitter-to-discord.user.js
+// @downloadURL  https://git.katzenzungen.lol/ForgoAdmin/Twitter-to-discord/raw/branch/master/twitter-to-discord.user.js
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
