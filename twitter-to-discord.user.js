@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.0.7
+// @version      1.0.8
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
@@ -28,6 +28,12 @@
     let mediaPosition = GM_getValue('mediaPosition', 'before'); // 'before' or 'after'
     let footerPlatform = GM_getValue('footerPlatform', 'twitter'); // 'twitter' or 'x'
     let footerLanguage = GM_getValue('footerLanguage', 'en'); // 'en' or 'de'
+    
+    // Platform icons
+    const platformIcons = {
+        twitter: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+        x: 'https://abs.twimg.com/favicons/twitter.3.ico' // X logo
+    };
     
     // Translations
     const translations = {
@@ -75,11 +81,13 @@
                 if (text && text.includes('window.__INITIAL_STATE__')) {
                     const match = text.match(/"screen_name":"([^"]+)"/);
                     if (match) {
+                        // Also try to find display name
+                        const nameMatch = text.match(/"name":"([^"]+)"/);
                         currentUserCache = {
                             username: match[1],
-                            displayName: match[1]
+                            displayName: nameMatch ? nameMatch[1] : match[1]
                         };
-                        console.log('Found username in initial state:', match[1]);
+                        console.log('Found username in initial state:', match[1], 'name:', currentUserCache.displayName);
                         return currentUserCache;
                     }
                 }
@@ -116,21 +124,42 @@
             const userAvatar = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"] img[alt]');
             if (userAvatar) {
                 const alt = userAvatar.getAttribute('alt');
-                const match = alt.match(/@(\w+)/);
-                if (match) {
+                // Alt text usually contains the display name
+                const parts = alt.split('@');
+                if (parts.length > 1) {
+                    const username = parts[1].trim();
+                    const displayName = parts[0].trim() || username;
                     currentUserCache = {
-                        username: match[1],
-                        displayName: match[1],
+                        username: username,
+                        displayName: displayName,
                         profileImage: userAvatar.src
                     };
-                    console.log('Found username from avatar alt:', match[1]);
+                    console.log('Found from avatar - username:', username, 'displayName:', displayName);
                     return currentUserCache;
                 }
             }
             
-            // Method 6: Get from account menu
+            // Method 6: Get from account switcher button
+            const accountSwitcher = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]');
+            if (accountSwitcher && !currentUserCache) {
+                const textElements = accountSwitcher.querySelectorAll('span');
+                if (textElements.length >= 2) {
+                    const displayName = textElements[0].textContent.trim();
+                    const username = textElements[1].textContent.replace('@', '').trim();
+                    if (username) {
+                        currentUserCache = {
+                            username: username,
+                            displayName: displayName || username
+                        };
+                        console.log('Found from account switcher text - username:', username, 'displayName:', displayName);
+                        return currentUserCache;
+                    }
+                }
+            }
+            
+            // Method 7: Get from account menu
             const accountMenu = document.querySelector('[aria-label*="Account menu"]');
-            if (accountMenu) {
+            if (accountMenu && !currentUserCache) {
                 const text = accountMenu.textContent;
                 const match = text.match(/@(\w+)/);
                 if (match) {
@@ -263,13 +292,16 @@
             displayName = user.name || displayName;
             profileImage = user.profile_image_url_https || user.profile_image_url || '';
 
-            // If we still don't have username, use cached user info
-            if (username === 'unknown') {
+            // If we still don't have username or displayName, use cached user info
+            if (username === 'unknown' || displayName === 'unknown' || displayName === username) {
                 const cachedUser = getCurrentUserInfo();
                 if (cachedUser) {
-                    username = cachedUser.username;
-                    displayName = cachedUser.displayName || username;
-                    console.log('Using cached user info:', username);
+                    username = cachedUser.username || username;
+                    displayName = cachedUser.displayName || displayName;
+                    if (!profileImage && cachedUser.profileImage) {
+                        profileImage = cachedUser.profileImage;
+                    }
+                    console.log('Using cached user info - username:', username, 'displayName:', displayName);
                 }
             }
             
@@ -432,7 +464,7 @@
             timestamp: tweetData.timestamp,
             footer: {
                 text: translations[footerLanguage].footer[footerPlatform],
-                icon_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png'
+                icon_url: platformIcons[footerPlatform]
             }
         };
 
@@ -485,7 +517,7 @@
                     setTimeout(() => {
                         const mediaPayload = {
                             username: 'Twitter Notifier',
-                            avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+                            avatar_url: platformIcons[footerPlatform],
                             content: media.url // The MP4 URL will be rendered as playable
                         };
                         
@@ -530,7 +562,7 @@
         function sendTweetEmbed(callback) {
             const payload = {
                 username: 'Twitter Notifier',
-                avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+                avatar_url: platformIcons[footerPlatform],
                 content: messageContent,
                 embeds: [embed]
             };
@@ -557,7 +589,7 @@
                             for (let i = 1; i < Math.min(tweetData.media.length, 4); i++) {
                                 const additionalPayload = {
                                     username: 'Twitter Notifier',
-                                    avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+                                    avatar_url: platformIcons[footerPlatform],
                                     content: '',
                                     embeds: [{
                                         image: { url: tweetData.media[i].url },

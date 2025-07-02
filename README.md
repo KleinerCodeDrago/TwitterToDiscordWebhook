@@ -75,6 +75,15 @@ The webhook creates a rich embed containing:
 - Requires the Discord webhook to be publicly accessible
 - May need updates if Twitter changes their internal API
 
+## Language Settings
+
+**Discord Timestamps**: Discord shows timestamps (like "Today at" or "Heute um") based on YOUR Discord language settings, not the script's language setting. To see timestamps in German:
+1. Go to Discord User Settings → Language
+2. Select "Deutsch"
+3. Restart Discord
+
+The script's language setting only affects the embed text (footer, buttons, etc.).
+
 ## Troubleshooting
 
 **Settings button not appearing:**
