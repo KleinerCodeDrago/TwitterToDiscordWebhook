@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.0.4
+// @version      1.0.5
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
@@ -23,6 +23,7 @@
     // Configuration
     let webhookUrl = GM_getValue('discordWebhookUrl', '');
     let isEnabled = GM_getValue('discordPostingEnabled', true);
+    let customMessage = GM_getValue('discordCustomMessage', '');
     
     // Cache for current user info
     let currentUserCache = null;
@@ -385,13 +386,22 @@
 
     // Send tweet data to Discord webhook
     function sendToDiscord(tweetData) {
+        // Process custom message if set
+        let messageContent = '';
+        if (customMessage) {
+            messageContent = customMessage
+                .replace('{url}', tweetData.url)
+                .replace('{username}', tweetData.username)
+                .replace('{date}', new Date().toLocaleDateString());
+        }
+        
         const embed = {
             author: {
                 name: `${tweetData.displayName} (@${tweetData.username})`,
                 icon_url: tweetData.profileImage,
                 url: `https://twitter.com/${tweetData.username}`
             },
-            description: tweetData.text,
+            description: tweetData.text + `\n\n**[View on Twitter →](${tweetData.url})**`,
             color: 0x1DA1F2, // Twitter blue
             timestamp: tweetData.timestamp,
             footer: {
@@ -400,33 +410,14 @@
             }
         };
 
-        // Add tweet URL directly in the embed
-        embed.url = tweetData.url;
-        embed.fields = [];
-
-        // Handle media based on type
-        const firstMedia = tweetData.media[0];
-        if (firstMedia) {
-            if (firstMedia.type === 'photo') {
-                // For photos, embed directly
-                embed.image = { url: firstMedia.url };
-            } else if (firstMedia.type === 'gif') {
-                // For GIFs, use the thumbnail and note it's a GIF
-                embed.image = { url: firstMedia.thumb };
-                embed.fields.push({
-                    name: 'Media Type',
-                    value: '🎬 Animated GIF',
-                    inline: true
-                });
-            } else if (firstMedia.type === 'video') {
-                // For videos, use thumbnail and note it's a video
-                embed.image = { url: firstMedia.thumb };
-                embed.fields.push({
-                    name: 'Media Type',
-                    value: '🎥 Video',
-                    inline: true
-                });
-            }
+        // Check if we have a GIF that should be sent separately
+        const hasGif = tweetData.media.some(m => m.type === 'gif');
+        const hasVideo = tweetData.media.some(m => m.type === 'video');
+        
+        // For regular photos or videos, add to embed
+        if (!hasGif && tweetData.media.length > 0) {
+            const firstMedia = tweetData.media[0];
+            embed.image = { url: firstMedia.type === 'video' ? firstMedia.thumb : firstMedia.url };
         }
 
         // If there are multiple media items, note it
@@ -445,64 +436,111 @@
             });
         }
 
-        const payload = {
-            username: 'Twitter Notifier',
-            avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
-            content: `🐦 **New tweet posted:** ${tweetData.url}`,
-            embeds: [embed]
-        };
-
-        // Send main message
-        GM_xmlhttpRequest({
-            method: 'POST',
-            url: webhookUrl,
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            data: JSON.stringify(payload),
-            onload: function(response) {
-                if (response.status === 204) {
-                    console.log('Tweet successfully sent to Discord!');
-                    
-                    // If there are multiple images, send additional ones
-                    if (tweetData.media.length > 1 && tweetData.media.every(m => m.type === 'photo')) {
-                        // Send remaining images as separate messages
-                        for (let i = 1; i < Math.min(tweetData.media.length, 4); i++) {
-                            const additionalPayload = {
-                                username: 'Twitter Notifier',
-                                avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
-                                content: '',
-                                embeds: [{
-                                    image: { url: tweetData.media[i].url },
-                                    color: 0x1DA1F2
-                                }]
-                            };
-                            
+        // If we have a GIF, send it first as a separate message
+        if (hasGif) {
+            const gifMedia = tweetData.media.find(m => m.type === 'gif');
+            if (gifMedia) {
+                const gifPayload = {
+                    username: 'Twitter Notifier',
+                    avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+                    content: gifMedia.url // The MP4 URL will be rendered as a playable GIF
+                };
+                
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: webhookUrl,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    data: JSON.stringify(gifPayload),
+                    onload: function(response) {
+                        if (response.status === 204) {
+                            console.log('GIF sent successfully!');
+                            // Send the tweet embed after a short delay
                             setTimeout(() => {
-                                GM_xmlhttpRequest({
-                                    method: 'POST',
-                                    url: webhookUrl,
-                                    headers: {
-                                        'Content-Type': 'application/json'
-                                    },
-                                    data: JSON.stringify(additionalPayload),
-                                    onload: function(resp) {
-                                        if (resp.status === 204) {
-                                            console.log(`Additional image ${i} sent!`);
-                                        }
-                                    }
-                                });
-                            }, i * 500); // Delay to avoid rate limits
+                                sendTweetEmbed();
+                            }, 500);
+                        } else {
+                            console.error('Failed to send GIF:', response.status);
+                            // Try to send embed anyway
+                            sendTweetEmbed();
                         }
+                    },
+                    onerror: function(error) {
+                        console.error('Error sending GIF:', error);
+                        // Try to send embed anyway
+                        sendTweetEmbed();
                     }
-                } else {
-                    console.error('Failed to send to Discord:', response.status, response.responseText);
-                }
-            },
-            onerror: function(error) {
-                console.error('Error sending to Discord:', error);
+                });
+                return; // Exit early, sendTweetEmbed will handle the rest
             }
-        });
+        }
+        
+        // Function to send the main tweet embed
+        function sendTweetEmbed() {
+            const payload = {
+                username: 'Twitter Notifier',
+                avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+                content: messageContent,
+                embeds: [embed]
+            };
+
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: webhookUrl,
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                data: JSON.stringify(payload),
+                onload: function(response) {
+                    if (response.status === 204) {
+                        console.log('Tweet successfully sent to Discord!');
+                        
+                        // If there are multiple images, send additional ones
+                        if (tweetData.media.length > 1 && tweetData.media.every(m => m.type === 'photo')) {
+                            // Send remaining images as separate messages
+                            for (let i = 1; i < Math.min(tweetData.media.length, 4); i++) {
+                                const additionalPayload = {
+                                    username: 'Twitter Notifier',
+                                    avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+                                    content: '',
+                                    embeds: [{
+                                        image: { url: tweetData.media[i].url },
+                                        color: 0x1DA1F2
+                                    }]
+                                };
+                                
+                                setTimeout(() => {
+                                    GM_xmlhttpRequest({
+                                        method: 'POST',
+                                        url: webhookUrl,
+                                        headers: {
+                                            'Content-Type': 'application/json'
+                                        },
+                                        data: JSON.stringify(additionalPayload),
+                                        onload: function(resp) {
+                                            if (resp.status === 204) {
+                                                console.log(`Additional image ${i} sent!`);
+                                            }
+                                        }
+                                    });
+                                }, i * 500); // Delay to avoid rate limits
+                            }
+                        }
+                    } else {
+                        console.error('Failed to send to Discord:', response.status, response.responseText);
+                    }
+                },
+                onerror: function(error) {
+                    console.error('Error sending to Discord:', error);
+                }
+            });
+        }
+        
+        // If no GIF, send normally
+        if (!hasGif) {
+            sendTweetEmbed();
+        }
     }
 
     // Create settings UI
@@ -517,7 +555,12 @@
                         Enable Discord posting
                     </label>
                     <label style="display: block; margin-bottom: 5px; color: #fff;">Webhook URL:</label>
-                    <input type="text" id="discord-webhook-url" value="${webhookUrl}" style="width: 100%; padding: 8px; margin-bottom: 15px; background: #192734; color: #fff; border: 1px solid #38444d; border-radius: 4px;">
+                    <input type="text" id="discord-webhook-url" value="${webhookUrl}" style="width: 100%; padding: 8px; margin-bottom: 10px; background: #192734; color: #fff; border: 1px solid #38444d; border-radius: 4px;">
+                    
+                    <label style="display: block; margin-bottom: 5px; color: #fff;">Custom Message (optional):</label>
+                    <input type="text" id="discord-custom-message" value="${customMessage}" placeholder="e.g. New tweet from {username}" style="width: 100%; padding: 8px; margin-bottom: 5px; background: #192734; color: #fff; border: 1px solid #38444d; border-radius: 4px;">
+                    <small style="display: block; color: #8b98a5; margin-bottom: 15px;">Available: {url}, {username}, {date}</small>
+                    
                     <div style="text-align: right;">
                         <button id="discord-settings-save" style="margin-right: 10px; padding: 8px 20px; background: #1d9bf0; color: #fff; border: none; border-radius: 9999px; cursor: pointer; font-weight: bold;">Save</button>
                         <button id="discord-settings-cancel" style="padding: 8px 20px; background: transparent; color: #fff; border: 1px solid #536471; border-radius: 9999px; cursor: pointer; font-weight: bold;">Cancel</button>
@@ -564,9 +607,11 @@
         document.getElementById('discord-settings-save').addEventListener('click', () => {
             webhookUrl = document.getElementById('discord-webhook-url').value;
             isEnabled = document.getElementById('discord-enabled').checked;
+            customMessage = document.getElementById('discord-custom-message').value;
             
             GM_setValue('discordWebhookUrl', webhookUrl);
             GM_setValue('discordPostingEnabled', isEnabled);
+            GM_setValue('discordCustomMessage', customMessage);
             
             document.getElementById('discord-webhook-settings').style.display = 'none';
             
