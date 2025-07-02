@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.0.5
+// @version      1.0.6
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
@@ -24,6 +24,8 @@
     let webhookUrl = GM_getValue('discordWebhookUrl', '');
     let isEnabled = GM_getValue('discordPostingEnabled', true);
     let customMessage = GM_getValue('discordCustomMessage', '');
+    let mediaDisplayMode = GM_getValue('mediaDisplayMode', 'separate'); // 'separate' or 'embedded'
+    let mediaPosition = GM_getValue('mediaPosition', 'before'); // 'before' or 'after'
     
     // Cache for current user info
     let currentUserCache = null;
@@ -410,14 +412,26 @@
             }
         };
 
-        // Check if we have a GIF that should be sent separately
+        // Check media types
         const hasGif = tweetData.media.some(m => m.type === 'gif');
         const hasVideo = tweetData.media.some(m => m.type === 'video');
+        const hasMedia = tweetData.media.length > 0;
         
-        // For regular photos or videos, add to embed
-        if (!hasGif && tweetData.media.length > 0) {
-            const firstMedia = tweetData.media[0];
-            embed.image = { url: firstMedia.type === 'video' ? firstMedia.thumb : firstMedia.url };
+        // Handle media based on display mode
+        if (mediaDisplayMode === 'embedded') {
+            // In embedded mode, always show preview in embed
+            if (hasMedia) {
+                const firstMedia = tweetData.media[0];
+                embed.image = { url: firstMedia.type === 'photo' ? firstMedia.url : firstMedia.thumb };
+            }
+        } else {
+            // In separate mode, only show photos in embed
+            if (hasMedia && !hasGif && !hasVideo) {
+                const firstMedia = tweetData.media[0];
+                if (firstMedia.type === 'photo') {
+                    embed.image = { url: firstMedia.url };
+                }
+            }
         }
 
         // If there are multiple media items, note it
@@ -436,48 +450,60 @@
             });
         }
 
-        // If we have a GIF, send it first as a separate message
-        if (hasGif) {
-            const gifMedia = tweetData.media.find(m => m.type === 'gif');
-            if (gifMedia) {
-                const gifPayload = {
-                    username: 'Twitter Notifier',
-                    avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
-                    content: gifMedia.url // The MP4 URL will be rendered as a playable GIF
-                };
-                
-                GM_xmlhttpRequest({
-                    method: 'POST',
-                    url: webhookUrl,
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    data: JSON.stringify(gifPayload),
-                    onload: function(response) {
-                        if (response.status === 204) {
-                            console.log('GIF sent successfully!');
-                            // Send the tweet embed after a short delay
-                            setTimeout(() => {
-                                sendTweetEmbed();
-                            }, 500);
-                        } else {
-                            console.error('Failed to send GIF:', response.status);
-                            // Try to send embed anyway
-                            sendTweetEmbed();
-                        }
-                    },
-                    onerror: function(error) {
-                        console.error('Error sending GIF:', error);
-                        // Try to send embed anyway
-                        sendTweetEmbed();
-                    }
+        // Handle separate media mode
+        if (mediaDisplayMode === 'separate' && (hasGif || hasVideo)) {
+            const animatedMedia = tweetData.media.filter(m => m.type === 'gif' || m.type === 'video');
+            
+            // Function to send animated media
+            function sendAnimatedMedia(callback) {
+                let sent = 0;
+                animatedMedia.forEach((media, index) => {
+                    setTimeout(() => {
+                        const mediaPayload = {
+                            username: 'Twitter Notifier',
+                            avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+                            content: media.url // The MP4 URL will be rendered as playable
+                        };
+                        
+                        GM_xmlhttpRequest({
+                            method: 'POST',
+                            url: webhookUrl,
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            data: JSON.stringify(mediaPayload),
+                            onload: function(response) {
+                                sent++;
+                                if (sent === animatedMedia.length && callback) {
+                                    setTimeout(callback, 500);
+                                }
+                            },
+                            onerror: function() {
+                                sent++;
+                                if (sent === animatedMedia.length && callback) {
+                                    setTimeout(callback, 500);
+                                }
+                            }
+                        });
+                    }, index * 500);
                 });
-                return; // Exit early, sendTweetEmbed will handle the rest
+            }
+            
+            // Send based on position preference
+            if (mediaPosition === 'before') {
+                sendAnimatedMedia(() => sendTweetEmbed());
+                return;
+            } else {
+                // Send tweet first, then media
+                sendTweetEmbed(() => {
+                    setTimeout(() => sendAnimatedMedia(), 500);
+                });
+                return;
             }
         }
         
         // Function to send the main tweet embed
-        function sendTweetEmbed() {
+        function sendTweetEmbed(callback) {
             const payload = {
                 username: 'Twitter Notifier',
                 avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
@@ -495,6 +521,11 @@
                 onload: function(response) {
                     if (response.status === 204) {
                         console.log('Tweet successfully sent to Discord!');
+                        
+                        // Call callback if provided
+                        if (callback) {
+                            callback();
+                        }
                         
                         // If there are multiple images, send additional ones
                         if (tweetData.media.length > 1 && tweetData.media.every(m => m.type === 'photo')) {
@@ -537,10 +568,8 @@
             });
         }
         
-        // If no GIF, send normally
-        if (!hasGif) {
-            sendTweetEmbed();
-        }
+        // Default case: send tweet embed normally
+        sendTweetEmbed();
     }
 
     // Create settings UI
@@ -560,6 +589,20 @@
                     <label style="display: block; margin-bottom: 5px; color: #fff;">Custom Message (optional):</label>
                     <input type="text" id="discord-custom-message" value="${customMessage}" placeholder="e.g. New tweet from {username}" style="width: 100%; padding: 8px; margin-bottom: 5px; background: #192734; color: #fff; border: 1px solid #38444d; border-radius: 4px;">
                     <small style="display: block; color: #8b98a5; margin-bottom: 15px;">Available: {url}, {username}, {date}</small>
+                    
+                    <label style="display: block; margin-bottom: 5px; color: #fff;">Media Display:</label>
+                    <select id="discord-media-mode" style="width: 100%; padding: 8px; margin-bottom: 10px; background: #192734; color: #fff; border: 1px solid #38444d; border-radius: 4px;">
+                        <option value="separate" ${mediaDisplayMode === 'separate' ? 'selected' : ''}>Separate (playable GIFs/videos)</option>
+                        <option value="embedded" ${mediaDisplayMode === 'embedded' ? 'selected' : ''}>Embedded (static preview)</option>
+                    </select>
+                    
+                    <div id="media-position-container" style="${mediaDisplayMode === 'embedded' ? 'display: none;' : ''}">
+                        <label style="display: block; margin-bottom: 5px; color: #fff;">Media Position:</label>
+                        <select id="discord-media-position" style="width: 100%; padding: 8px; margin-bottom: 15px; background: #192734; color: #fff; border: 1px solid #38444d; border-radius: 4px;">
+                            <option value="before" ${mediaPosition === 'before' ? 'selected' : ''}>Before tweet</option>
+                            <option value="after" ${mediaPosition === 'after' ? 'selected' : ''}>After tweet</option>
+                        </select>
+                    </div>
                     
                     <div style="text-align: right;">
                         <button id="discord-settings-save" style="margin-right: 10px; padding: 8px 20px; background: #1d9bf0; color: #fff; border: none; border-radius: 9999px; cursor: pointer; font-weight: bold;">Save</button>
@@ -604,14 +647,23 @@
         setTimeout(() => clearInterval(buttonInterval), 30000); // Stop after 30 seconds
 
         // Settings event handlers
+        document.getElementById('discord-media-mode').addEventListener('change', (e) => {
+            const positionContainer = document.getElementById('media-position-container');
+            positionContainer.style.display = e.target.value === 'embedded' ? 'none' : 'block';
+        });
+        
         document.getElementById('discord-settings-save').addEventListener('click', () => {
             webhookUrl = document.getElementById('discord-webhook-url').value;
             isEnabled = document.getElementById('discord-enabled').checked;
             customMessage = document.getElementById('discord-custom-message').value;
+            mediaDisplayMode = document.getElementById('discord-media-mode').value;
+            mediaPosition = document.getElementById('discord-media-position').value;
             
             GM_setValue('discordWebhookUrl', webhookUrl);
             GM_setValue('discordPostingEnabled', isEnabled);
             GM_setValue('discordCustomMessage', customMessage);
+            GM_setValue('mediaDisplayMode', mediaDisplayMode);
+            GM_setValue('mediaPosition', mediaPosition);
             
             document.getElementById('discord-webhook-settings').style.display = 'none';
             
