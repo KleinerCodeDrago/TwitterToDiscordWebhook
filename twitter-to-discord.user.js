@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.0.6
+// @version      1.0.7
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
@@ -26,6 +26,30 @@
     let customMessage = GM_getValue('discordCustomMessage', '');
     let mediaDisplayMode = GM_getValue('mediaDisplayMode', 'separate'); // 'separate' or 'embedded'
     let mediaPosition = GM_getValue('mediaPosition', 'before'); // 'before' or 'after'
+    let footerPlatform = GM_getValue('footerPlatform', 'twitter'); // 'twitter' or 'x'
+    let footerLanguage = GM_getValue('footerLanguage', 'en'); // 'en' or 'de'
+    
+    // Translations
+    const translations = {
+        en: {
+            footer: {
+                twitter: 'Posted from Twitter',
+                x: 'Posted from X'
+            },
+            viewButton: 'View on Twitter →',
+            additionalMedia: 'Additional Media',
+            items: 'items'
+        },
+        de: {
+            footer: {
+                twitter: 'Gepostet von Twitter',
+                x: 'Gepostet von X'
+            },
+            viewButton: 'Auf Twitter ansehen →',
+            additionalMedia: 'Weitere Medien',
+            items: 'Elemente'
+        }
+    };
     
     // Cache for current user info
     let currentUserCache = null;
@@ -403,11 +427,11 @@
                 icon_url: tweetData.profileImage,
                 url: `https://twitter.com/${tweetData.username}`
             },
-            description: tweetData.text + `\n\n**[View on Twitter →](${tweetData.url})**`,
+            description: tweetData.text + `\n\n**[${translations[footerLanguage].viewButton}](${tweetData.url})**`,
             color: 0x1DA1F2, // Twitter blue
             timestamp: tweetData.timestamp,
             footer: {
-                text: 'Posted from Twitter',
+                text: translations[footerLanguage].footer[footerPlatform],
                 icon_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png'
             }
         };
@@ -444,8 +468,8 @@
             }).join(' ');
             
             embed.fields.push({
-                name: 'Additional Media',
-                value: `${tweetData.media.length} items: ${mediaTypes}`,
+                name: translations[footerLanguage].additionalMedia,
+                value: `${tweetData.media.length} ${translations[footerLanguage].items}: ${mediaTypes}`,
                 inline: false
             });
         }
@@ -598,11 +622,23 @@
                     
                     <div id="media-position-container" style="${mediaDisplayMode === 'embedded' ? 'display: none;' : ''}">
                         <label style="display: block; margin-bottom: 5px; color: #fff;">Media Position:</label>
-                        <select id="discord-media-position" style="width: 100%; padding: 8px; margin-bottom: 15px; background: #192734; color: #fff; border: 1px solid #38444d; border-radius: 4px;">
+                        <select id="discord-media-position" style="width: 100%; padding: 8px; margin-bottom: 10px; background: #192734; color: #fff; border: 1px solid #38444d; border-radius: 4px;">
                             <option value="before" ${mediaPosition === 'before' ? 'selected' : ''}>Before tweet</option>
                             <option value="after" ${mediaPosition === 'after' ? 'selected' : ''}>After tweet</option>
                         </select>
                     </div>
+                    
+                    <label style="display: block; margin-bottom: 5px; color: #fff;">Footer Platform:</label>
+                    <select id="discord-footer-platform" style="width: 100%; padding: 8px; margin-bottom: 10px; background: #192734; color: #fff; border: 1px solid #38444d; border-radius: 4px;">
+                        <option value="twitter" ${footerPlatform === 'twitter' ? 'selected' : ''}>Twitter</option>
+                        <option value="x" ${footerPlatform === 'x' ? 'selected' : ''}>X</option>
+                    </select>
+                    
+                    <label style="display: block; margin-bottom: 5px; color: #fff;">Language:</label>
+                    <select id="discord-footer-language" style="width: 100%; padding: 8px; margin-bottom: 15px; background: #192734; color: #fff; border: 1px solid #38444d; border-radius: 4px;">
+                        <option value="en" ${footerLanguage === 'en' ? 'selected' : ''}>English</option>
+                        <option value="de" ${footerLanguage === 'de' ? 'selected' : ''}>Deutsch</option>
+                    </select>
                     
                     <div style="text-align: right;">
                         <button id="discord-settings-save" style="margin-right: 10px; padding: 8px 20px; background: #1d9bf0; color: #fff; border: none; border-radius: 9999px; cursor: pointer; font-weight: bold;">Save</button>
@@ -658,12 +694,16 @@
             customMessage = document.getElementById('discord-custom-message').value;
             mediaDisplayMode = document.getElementById('discord-media-mode').value;
             mediaPosition = document.getElementById('discord-media-position').value;
+            footerPlatform = document.getElementById('discord-footer-platform').value;
+            footerLanguage = document.getElementById('discord-footer-language').value;
             
             GM_setValue('discordWebhookUrl', webhookUrl);
             GM_setValue('discordPostingEnabled', isEnabled);
             GM_setValue('discordCustomMessage', customMessage);
             GM_setValue('mediaDisplayMode', mediaDisplayMode);
             GM_setValue('mediaPosition', mediaPosition);
+            GM_setValue('footerPlatform', footerPlatform);
+            GM_setValue('footerLanguage', footerLanguage);
             
             document.getElementById('discord-webhook-settings').style.display = 'none';
             
