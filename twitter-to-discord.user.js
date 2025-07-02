@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
+// @version      1.0.2
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
@@ -23,6 +23,110 @@
     // Configuration
     let webhookUrl = GM_getValue('discordWebhookUrl', '');
     let isEnabled = GM_getValue('discordPostingEnabled', true);
+    
+    // Cache for current user info
+    let currentUserCache = null;
+    
+    // Function to extract current user info
+    function getCurrentUserInfo() {
+        if (currentUserCache) return currentUserCache;
+        
+        try {
+            // Method 1: Check cookies for username
+            const cookies = document.cookie.split(';');
+            for (const cookie of cookies) {
+                if (cookie.includes('twid=')) {
+                    // Twitter user ID found, but we need username
+                    console.log('Found Twitter ID in cookies:', cookie);
+                }
+            }
+            
+            // Method 2: Extract from initial state in page
+            const scripts = document.querySelectorAll('script');
+            for (const script of scripts) {
+                const text = script.textContent;
+                if (text && text.includes('window.__INITIAL_STATE__')) {
+                    const match = text.match(/"screen_name":"([^"]+)"/);
+                    if (match) {
+                        currentUserCache = {
+                            username: match[1],
+                            displayName: match[1]
+                        };
+                        console.log('Found username in initial state:', match[1]);
+                        return currentUserCache;
+                    }
+                }
+            }
+            
+            // Method 3: Get from meta tags
+            const metaUsername = document.querySelector('meta[name="twitter:creator"]');
+            if (metaUsername) {
+                const username = metaUsername.content.replace('@', '');
+                currentUserCache = {
+                    username: username,
+                    displayName: username
+                };
+                console.log('Found username in meta tag:', username);
+                return currentUserCache;
+            }
+            
+            // Method 4: Extract from page data
+            const profileLink = document.querySelector('[data-testid="AppTabBar_Profile_Link"]');
+            if (profileLink) {
+                const href = profileLink.getAttribute('href');
+                if (href && href !== '/') {
+                    const username = href.replace('/', '');
+                    currentUserCache = {
+                        username: username,
+                        displayName: username
+                    };
+                    console.log('Found username in profile link:', username);
+                    return currentUserCache;
+                }
+            }
+            
+            // Method 5: Get from user avatar in sidebar
+            const userAvatar = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"] img[alt]');
+            if (userAvatar) {
+                const alt = userAvatar.getAttribute('alt');
+                const match = alt.match(/@(\w+)/);
+                if (match) {
+                    currentUserCache = {
+                        username: match[1],
+                        displayName: match[1],
+                        profileImage: userAvatar.src
+                    };
+                    console.log('Found username from avatar alt:', match[1]);
+                    return currentUserCache;
+                }
+            }
+            
+            // Method 6: Get from account menu
+            const accountMenu = document.querySelector('[aria-label*="Account menu"]');
+            if (accountMenu) {
+                const text = accountMenu.textContent;
+                const match = text.match(/@(\w+)/);
+                if (match) {
+                    currentUserCache = {
+                        username: match[1],
+                        displayName: match[1]
+                    };
+                    console.log('Found username from account menu:', match[1]);
+                    return currentUserCache;
+                }
+            }
+            
+        } catch (e) {
+            console.error('Error getting current user info:', e);
+        }
+        
+        return null;
+    }
+    
+    // Try to get user info on page load
+    setTimeout(() => {
+        getCurrentUserInfo();
+    }, 2000);
 
     // Intercept XMLHttpRequest to detect tweet posts
     const originalOpen = XMLHttpRequest.prototype.open;
@@ -105,8 +209,25 @@
                 try {
                     const reqData = JSON.parse(requestData);
                     console.log('Parsed request data:', reqData);
+                    
+                    // Check if variables contain user info
+                    if (reqData.variables?.tweet_text) {
+                        console.log('Tweet text from request:', reqData.variables.tweet_text);
+                    }
                 } catch (e) {
                     console.error('Could not parse request data');
+                }
+                
+                // Last resort: try to get from the tweet creation result
+                if (response?.data?.create_tweet?.tweet_results?.result) {
+                    const tweetResult = response.data.create_tweet.tweet_results.result;
+                    console.log('Full tweet result:', JSON.stringify(tweetResult, null, 2));
+                    
+                    // Sometimes user data is in the root of the result
+                    if (tweetResult.user_results?.result?.legacy) {
+                        user = tweetResult.user_results.result.legacy;
+                        console.log('Found user in tweet result root');
+                    }
                 }
             }
 
@@ -115,6 +236,16 @@
             displayName = user.name || displayName;
             profileImage = user.profile_image_url_https || user.profile_image_url || '';
 
+            // If we still don't have username, use cached user info
+            if (username === 'unknown') {
+                const cachedUser = getCurrentUserInfo();
+                if (cachedUser) {
+                    username = cachedUser.username;
+                    displayName = cachedUser.displayName || username;
+                    console.log('Using cached user info:', username);
+                }
+            }
+            
             // If we still don't have username, try to get it from the current page
             if (username === 'unknown') {
                 try {
