@@ -84,13 +84,28 @@
             let displayName = 'unknown';
             let profileImage = '';
 
+            // Debug: Log the entire result structure
+            console.log('Tweet result structure:', JSON.stringify(result, null, 2));
+            
             // Try to find user data in different possible locations
             if (result.core?.user_results?.result?.legacy) {
                 user = result.core.user_results.result.legacy;
+                console.log('Found user in core.user_results');
             } else if (response?.data?.create_tweet?.tweet_results?.result?.user_results?.result?.legacy) {
                 user = response.data.create_tweet.tweet_results.result.user_results.result.legacy;
+                console.log('Found user in create_tweet.tweet_results');
             } else if (result.author_user_results?.result?.legacy) {
                 user = result.author_user_results.result.legacy;
+                console.log('Found user in author_user_results');
+            } else {
+                // Try to extract from request data
+                console.log('Request data:', requestData);
+                try {
+                    const reqData = JSON.parse(requestData);
+                    console.log('Parsed request data:', reqData);
+                } catch (e) {
+                    console.error('Could not parse request data');
+                }
             }
 
             // Extract user details
@@ -101,17 +116,60 @@
             // If we still don't have username, try to get it from the current page
             if (username === 'unknown') {
                 try {
-                    // Try to get username from the page URL
+                    // Method 1: Try to get username from the page URL
                     const urlMatch = window.location.pathname.match(/^\/([^\/]+)/);
                     if (urlMatch && urlMatch[1] !== 'home' && urlMatch[1] !== 'compose') {
                         username = urlMatch[1];
+                        console.log('Got username from URL:', username);
                     }
                     
-                    // Try to get it from the navigation
+                    // Method 2: Try to get it from the navigation profile link
                     const profileLink = document.querySelector('a[href^="/"][href$="/"][data-testid="AppTabBar_Profile_Link"]');
-                    if (profileLink) {
+                    if (profileLink && username === 'unknown') {
                         const href = profileLink.getAttribute('href');
                         username = href.replace(/\//g, '') || username;
+                        console.log('Got username from profile link:', username);
+                    }
+                    
+                    // Method 3: Try to get from localStorage
+                    if (username === 'unknown') {
+                        const localStorageKeys = Object.keys(localStorage);
+                        for (const key of localStorageKeys) {
+                            if (key.includes('screen_name') || key.includes('username')) {
+                                try {
+                                    const value = localStorage.getItem(key);
+                                    const parsed = JSON.parse(value);
+                                    if (parsed.screen_name) {
+                                        username = parsed.screen_name;
+                                        console.log('Got username from localStorage:', username);
+                                        break;
+                                    }
+                                } catch (e) {
+                                    // Not JSON or doesn't have screen_name
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Method 4: Try to get from React props
+                    if (username === 'unknown') {
+                        const reactRoot = document.querySelector('#react-root');
+                        if (reactRoot && reactRoot._reactRootContainer) {
+                            try {
+                                const fiber = reactRoot._reactRootContainer._internalRoot.current;
+                                let node = fiber;
+                                while (node) {
+                                    if (node.memoizedProps?.user?.screen_name) {
+                                        username = node.memoizedProps.user.screen_name;
+                                        console.log('Got username from React props:', username);
+                                        break;
+                                    }
+                                    node = node.child || node.sibling || node.return;
+                                }
+                            } catch (e) {
+                                console.error('Could not extract from React:', e);
+                            }
+                        }
                     }
                 } catch (e) {
                     console.error('Error getting username from page:', e);
