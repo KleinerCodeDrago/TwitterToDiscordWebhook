@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.0.2
+// @version      1.0.3
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
@@ -309,11 +309,44 @@
                 }
             }
 
-            // Get media URLs
+            // Get media URLs - handle all types (photos, GIFs, videos)
             const media = legacy.extended_entities?.media || legacy.entities?.media || [];
-            const images = media
-                .filter(m => m.type === 'photo')
-                .map(m => m.media_url_https || m.media_url);
+            console.log('Found media items:', media.length, media.map(m => ({ type: m.type, url: m.media_url_https || m.video_info })));
+            
+            const mediaItems = [];
+            
+            for (const item of media) {
+                if (item.type === 'photo') {
+                    mediaItems.push({
+                        type: 'photo',
+                        url: item.media_url_https || item.media_url,
+                        thumb: item.media_url_https || item.media_url
+                    });
+                } else if (item.type === 'animated_gif') {
+                    // For GIFs, get the MP4 variant
+                    const variants = item.video_info?.variants || [];
+                    const mp4Variant = variants.find(v => v.content_type === 'video/mp4') || variants[0];
+                    if (mp4Variant) {
+                        mediaItems.push({
+                            type: 'gif',
+                            url: mp4Variant.url,
+                            thumb: item.media_url_https || item.media_url
+                        });
+                    }
+                } else if (item.type === 'video') {
+                    // For videos, get the highest quality MP4
+                    const variants = item.video_info?.variants || [];
+                    const mp4Variants = variants.filter(v => v.content_type === 'video/mp4');
+                    const bestVariant = mp4Variants.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+                    if (bestVariant) {
+                        mediaItems.push({
+                            type: 'video',
+                            url: bestVariant.url,
+                            thumb: item.media_url_https || item.media_url
+                        });
+                    }
+                }
+            }
 
             // Construct tweet URL
             const tweetUrl = `https://twitter.com/${username}/status/${tweetId}`;
@@ -325,7 +358,7 @@
                 username: username,
                 displayName: displayName,
                 profileImage: profileImage,
-                images: images,
+                media: mediaItems,
                 timestamp: new Date().toISOString()
             };
         } catch (e) {
@@ -351,11 +384,6 @@
             }
         };
 
-        // Add first image if available (Discord embeds only support one main image)
-        if (tweetData.images.length > 0) {
-            embed.image = { url: tweetData.images[0] };
-        }
-
         // Add tweet URL as a field
         embed.fields = [{
             name: 'View on Twitter',
@@ -363,11 +391,43 @@
             inline: true
         }];
 
-        // If there are multiple images, mention it
-        if (tweetData.images.length > 1) {
+        // Handle media based on type
+        const firstMedia = tweetData.media[0];
+        if (firstMedia) {
+            if (firstMedia.type === 'photo') {
+                // For photos, embed directly
+                embed.image = { url: firstMedia.url };
+            } else if (firstMedia.type === 'gif') {
+                // For GIFs, use the thumbnail and note it's a GIF
+                embed.image = { url: firstMedia.thumb };
+                embed.fields.push({
+                    name: 'Media Type',
+                    value: '🎬 Animated GIF',
+                    inline: true
+                });
+            } else if (firstMedia.type === 'video') {
+                // For videos, use thumbnail and note it's a video
+                embed.image = { url: firstMedia.thumb };
+                embed.fields.push({
+                    name: 'Media Type',
+                    value: '🎥 Video',
+                    inline: true
+                });
+            }
+        }
+
+        // If there are multiple media items, note it
+        if (tweetData.media.length > 1) {
+            const mediaTypes = tweetData.media.map(m => {
+                if (m.type === 'photo') return '🖼️';
+                if (m.type === 'gif') return '🎬';
+                if (m.type === 'video') return '🎥';
+                return '📎';
+            }).join(' ');
+            
             embed.fields.push({
-                name: 'Additional Images',
-                value: `This tweet contains ${tweetData.images.length} images. [View all on Twitter](${tweetData.url})`,
+                name: 'Additional Media',
+                value: `${tweetData.media.length} items: ${mediaTypes}`,
                 inline: false
             });
         }
@@ -378,7 +438,7 @@
             embeds: [embed]
         };
 
-        // Use GM_xmlhttpRequest to bypass CORS
+        // Send main message
         GM_xmlhttpRequest({
             method: 'POST',
             url: webhookUrl,
@@ -389,6 +449,38 @@
             onload: function(response) {
                 if (response.status === 204) {
                     console.log('Tweet successfully sent to Discord!');
+                    
+                    // If there are multiple images, send additional ones
+                    if (tweetData.media.length > 1 && tweetData.media.every(m => m.type === 'photo')) {
+                        // Send remaining images as separate messages
+                        for (let i = 1; i < Math.min(tweetData.media.length, 4); i++) {
+                            const additionalPayload = {
+                                username: 'Twitter Notifier',
+                                avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+                                content: '',
+                                embeds: [{
+                                    image: { url: tweetData.media[i].url },
+                                    color: 0x1DA1F2
+                                }]
+                            };
+                            
+                            setTimeout(() => {
+                                GM_xmlhttpRequest({
+                                    method: 'POST',
+                                    url: webhookUrl,
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    data: JSON.stringify(additionalPayload),
+                                    onload: function(resp) {
+                                        if (resp.status === 204) {
+                                            console.log(`Additional image ${i} sent!`);
+                                        }
+                                    }
+                                });
+                            }, i * 500); // Delay to avoid rate limits
+                        }
+                    }
                 } else {
                     console.error('Failed to send to Discord:', response.status, response.responseText);
                 }
