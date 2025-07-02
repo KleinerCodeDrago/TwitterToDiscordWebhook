@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.0.3
+// @version      1.0.4
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
@@ -323,26 +323,42 @@
                         thumb: item.media_url_https || item.media_url
                     });
                 } else if (item.type === 'animated_gif') {
-                    // For GIFs, get the MP4 variant
+                    // For GIFs, get the MP4 variant and use preview image
                     const variants = item.video_info?.variants || [];
                     const mp4Variant = variants.find(v => v.content_type === 'video/mp4') || variants[0];
+                    const thumbUrl = item.media_url_https || item.media_url || item.thumb_url;
+                    
+                    console.log('GIF item:', { 
+                        variants: variants.length, 
+                        thumb: thumbUrl,
+                        preview: item.preview_image_url
+                    });
+                    
                     if (mp4Variant) {
                         mediaItems.push({
                             type: 'gif',
                             url: mp4Variant.url,
-                            thumb: item.media_url_https || item.media_url
+                            thumb: thumbUrl + ':small' // Twitter serves different sizes with :small, :medium, :large
                         });
                     }
                 } else if (item.type === 'video') {
-                    // For videos, get the highest quality MP4
+                    // For videos, get the highest quality MP4 and preview
                     const variants = item.video_info?.variants || [];
                     const mp4Variants = variants.filter(v => v.content_type === 'video/mp4');
                     const bestVariant = mp4Variants.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0];
+                    const thumbUrl = item.media_url_https || item.media_url || item.preview_image_url;
+                    
+                    console.log('Video item:', { 
+                        variants: variants.length, 
+                        thumb: thumbUrl,
+                        preview: item.preview_image_url
+                    });
+                    
                     if (bestVariant) {
                         mediaItems.push({
                             type: 'video',
                             url: bestVariant.url,
-                            thumb: item.media_url_https || item.media_url
+                            thumb: thumbUrl + ':small'
                         });
                     }
                 }
@@ -384,12 +400,9 @@
             }
         };
 
-        // Add tweet URL as a field
-        embed.fields = [{
-            name: 'View on Twitter',
-            value: `[Click here](${tweetData.url})`,
-            inline: true
-        }];
+        // Add tweet URL directly in the embed
+        embed.url = tweetData.url;
+        embed.fields = [];
 
         // Handle media based on type
         const firstMedia = tweetData.media[0];
@@ -435,6 +448,7 @@
         const payload = {
             username: 'Twitter Notifier',
             avatar_url: 'https://abs.twimg.com/icons/apple-touch-icon-192x192.png',
+            content: `🐦 **New tweet posted:** ${tweetData.url}`,
             embeds: [embed]
         };
 
