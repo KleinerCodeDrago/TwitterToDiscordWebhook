@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.0.8
+// @version      1.0.9
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
@@ -28,6 +28,7 @@
     let mediaPosition = GM_getValue('mediaPosition', 'before'); // 'before' or 'after'
     let footerPlatform = GM_getValue('footerPlatform', 'twitter'); // 'twitter' or 'x'
     let footerLanguage = GM_getValue('footerLanguage', 'en'); // 'en' or 'de'
+    let includeReplies = GM_getValue('includeReplies', false); // Include replies to tweets
     
     // Platform icons
     const platformIcons = {
@@ -212,7 +213,18 @@
                         // Extract tweet data
                         const tweetData = parseTweetData(response, requestData);
                         if (tweetData) {
-                            sendToDiscord(tweetData);
+                            // Check if this is a reply
+                            const isReply = requestData?.variables?.reply?.in_reply_to_tweet_id || 
+                                          requestData?.variables?.in_reply_to_status_id ||
+                                          requestData?.variables?.reply_to_tweet_id ||
+                                          false;
+                            
+                            // Only send to Discord if includeReplies is true or if it's not a reply
+                            if (includeReplies || !isReply) {
+                                sendToDiscord(tweetData);
+                            } else {
+                                console.log('Skipping reply tweet - includeReplies is disabled');
+                            }
                         }
                     } catch (e) {
                         console.error('Error parsing tweet data:', e);
@@ -238,7 +250,7 @@
 
             const legacy = result.legacy || result;
             const tweetId = result.rest_id || legacy.id_str;
-            const text = legacy.full_text || legacy.text || '';
+            let text = legacy.full_text || legacy.text || '';
             
             // Get user data - check multiple possible locations
             let user = {};
@@ -421,6 +433,34 @@
                         });
                     }
                 }
+            }
+            
+            // Remove media URLs from tweet text
+            // Twitter appends t.co URLs for media at the end of tweets
+            if (mediaItems.length > 0 && legacy.entities?.urls) {
+                // Get all URLs from entities
+                const urls = legacy.entities.urls || [];
+                
+                // Sort URLs by their position in reverse order (process from end to start)
+                const sortedUrls = [...urls].sort((a, b) => b.indices[0] - a.indices[0]);
+                
+                for (const urlEntity of sortedUrls) {
+                    // Check if this URL is at the end of the text (typical for media URLs)
+                    // Media URLs are usually the last URLs in the tweet
+                    const [start, end] = urlEntity.indices;
+                    
+                    // Check if the URL is at or near the end of the text
+                    if (end >= text.length - 1 || (end >= text.length - 2 && text[text.length - 1] === ' ')) {
+                        // This is likely a media URL, remove it
+                        text = text.substring(0, start).trimEnd();
+                    }
+                }
+            }
+            
+            // Also handle the case where media URLs might be plain t.co links at the end
+            // This regex removes trailing t.co links that are typical for media
+            if (mediaItems.length > 0) {
+                text = text.replace(/\s*https:\/\/t\.co\/\w+\s*$/g, '').trimEnd();
             }
 
             // Construct tweet URL
@@ -639,6 +679,10 @@
                         <input type="checkbox" id="discord-enabled" ${isEnabled ? 'checked' : ''} style="margin-right: 5px;">
                         Enable Discord posting
                     </label>
+                    <label style="display: block; margin-bottom: 10px; color: #fff;">
+                        <input type="checkbox" id="discord-include-replies" ${includeReplies ? 'checked' : ''} style="margin-right: 5px;">
+                        Include replies to tweets
+                    </label>
                     <label style="display: block; margin-bottom: 5px; color: #fff;">Webhook URL:</label>
                     <input type="text" id="discord-webhook-url" value="${webhookUrl}" style="width: 100%; padding: 8px; margin-bottom: 10px; background: #192734; color: #fff; border: 1px solid #38444d; border-radius: 4px;">
                     
@@ -723,6 +767,7 @@
         document.getElementById('discord-settings-save').addEventListener('click', () => {
             webhookUrl = document.getElementById('discord-webhook-url').value;
             isEnabled = document.getElementById('discord-enabled').checked;
+            includeReplies = document.getElementById('discord-include-replies').checked;
             customMessage = document.getElementById('discord-custom-message').value;
             mediaDisplayMode = document.getElementById('discord-media-mode').value;
             mediaPosition = document.getElementById('discord-media-position').value;
@@ -731,6 +776,7 @@
             
             GM_setValue('discordWebhookUrl', webhookUrl);
             GM_setValue('discordPostingEnabled', isEnabled);
+            GM_setValue('includeReplies', includeReplies);
             GM_setValue('discordCustomMessage', customMessage);
             GM_setValue('mediaDisplayMode', mediaDisplayMode);
             GM_setValue('mediaPosition', mediaPosition);
