@@ -19,7 +19,7 @@ A userscript that automatically posts your tweets to a Discord channel via webho
 
 2. **Install the userscript**:
    - **Option A (Direct install with auto-updates)**: 
-     - [Click here to install](https://git.katzenzungen.lol/ForgoAdmin/Twitter-to-discord/raw/branch/master/twitter-to-discord.user.js)
+     - [Click here to install](https://github.com/KleinerCodeDrago/TwitterToDiscordWebhook/raw/refs/heads/master/twitter-to-discord.user.js)
      - Your userscript manager will prompt you to install
      - The script will automatically check for updates
    - **Option B (Manual install)**:
