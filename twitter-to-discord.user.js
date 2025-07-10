@@ -7,8 +7,8 @@
 // @match        https://twitter.com/*
 // @match        https://x.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=twitter.com
-// @updateURL    https://git.katzenzungen.lol/ForgoAdmin/Twitter-to-discord/raw/branch/master/twitter-to-discord.user.js
-// @downloadURL  https://git.katzenzungen.lol/ForgoAdmin/Twitter-to-discord/raw/branch/master/twitter-to-discord.user.js
+// @updateURL    https://github.com/KleinerCodeDrago/TwitterToDiscordWebhook/raw/refs/heads/master/twitter-to-discord.user.js
+// @downloadURL  https://github.com/KleinerCodeDrago/TwitterToDiscordWebhook/raw/refs/heads/master/twitter-to-discord.user.js
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
