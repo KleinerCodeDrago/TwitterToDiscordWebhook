@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
@@ -980,6 +980,22 @@
         });
     }
 
+    // Check if current compose window is a reply
+    function isReplyCompose() {
+        // Check for reply label in the compose modal
+        const replyLabel = document.querySelector('[data-testid="reply"]');
+        if (replyLabel) return true;
+        
+        // Check if there's a "Replying to @username" text
+        const replyingTo = document.querySelector('[data-testid="caret"] ~ div span');
+        if (replyingTo && replyingTo.textContent.includes('Replying to')) return true;
+        
+        // Check URL for reply pattern
+        if (window.location.pathname.includes('/compose/tweet') && window.location.search.includes('reply')) return true;
+        
+        return false;
+    }
+    
     // Update existing status indicator
     function updateStatusIndicator() {
         const indicator = document.getElementById('discord-status-indicator');
@@ -989,25 +1005,43 @@
         const config = getCurrentAccountConfig();
         const isConfigured = config && config.webhookUrl;
         const isEnabled = config && config.enabled;
+        const isReply = isReplyCompose();
+        const includeReplies = config && config.includeReplies;
+        
+        // Determine if truly active
+        let isActive = isEnabled && isConfigured;
+        if (isReply && !includeReplies) {
+            isActive = false;
+        }
         
         // Update background
-        indicator.style.background = isEnabled && isConfigured ? 'rgba(29, 155, 240, 0.1)' : 'rgba(113, 118, 123, 0.1)';
+        indicator.style.background = isActive ? 'rgba(29, 155, 240, 0.1)' : 'rgba(113, 118, 123, 0.1)';
         
         // Update icon color
         const icon = indicator.querySelector('svg');
         if (icon) {
-            icon.style.fill = isEnabled && isConfigured ? '#1d9bf0' : '#71767b';
+            icon.style.fill = isActive ? '#1d9bf0' : '#71767b';
         }
         
         // Update status text
         const statusText = indicator.querySelector('span');
         if (statusText) {
-            statusText.style.color = isEnabled && isConfigured ? '#1d9bf0' : '#71767b';
-            statusText.textContent = isEnabled && isConfigured ? 'Active' : (!isConfigured ? 'Not configured' : 'Disabled');
+            statusText.style.color = isActive ? '#1d9bf0' : '#71767b';
+            if (isReply && isEnabled && isConfigured && !includeReplies) {
+                statusText.textContent = 'Replies disabled';
+            } else {
+                statusText.textContent = isActive ? 'Active' : (!isConfigured ? 'Not configured' : 'Disabled');
+            }
         }
         
         // Update tooltip
-        indicator.title = `Discord webhook ${isEnabled && isConfigured ? 'active' : (!isConfigured ? 'not configured' : 'disabled')} for @${currentAccountName || 'unknown'}`;
+        let tooltipText = '';
+        if (isReply && isEnabled && isConfigured && !includeReplies) {
+            tooltipText = `Discord webhook disabled for replies - @${currentAccountName || 'unknown'}`;
+        } else {
+            tooltipText = `Discord webhook ${isActive ? 'active' : (!isConfigured ? 'not configured' : 'disabled')} for @${currentAccountName || 'unknown'}`;
+        }
+        indicator.title = tooltipText;
     }
     
     // Visual status indicator for tweet compose window
@@ -1025,6 +1059,14 @@
         const config = getCurrentAccountConfig();
         const isConfigured = config && config.webhookUrl;
         const isEnabled = config && config.enabled;
+        const isReply = isReplyCompose();
+        const includeReplies = config && config.includeReplies;
+        
+        // Determine if truly active
+        let isActive = isEnabled && isConfigured;
+        if (isReply && !includeReplies) {
+            isActive = false;
+        }
         
         // Create status indicator
         const indicator = document.createElement('div');
@@ -1034,7 +1076,7 @@
             align-items: center;
             margin-right: 12px;
             padding: 4px 8px;
-            background: ${isEnabled && isConfigured ? 'rgba(29, 155, 240, 0.1)' : 'rgba(113, 118, 123, 0.1)'};
+            background: ${isActive ? 'rgba(29, 155, 240, 0.1)' : 'rgba(113, 118, 123, 0.1)'};
             border-radius: 9999px;
             cursor: pointer;
         `;
@@ -1042,18 +1084,28 @@
         // Create Discord icon
         const icon = document.createElement('div');
         icon.style.cssText = 'width: 20px; height: 20px; margin-right: 6px;';
-        icon.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" style="fill: ${isEnabled && isConfigured ? '#1d9bf0' : '#71767b'};"><path d="M19.54 0c1.356 0 2.46 1.104 2.46 2.472v21.528l-2.58-2.28-1.452-1.344-1.536-1.428.636 2.22h-13.608c-1.356 0-2.46-1.104-2.46-2.472v-16.224c0-1.368 1.104-2.472 2.46-2.472h16.08zm-4.632 15.672c2.652-.084 3.672-1.824 3.672-1.824 0-3.864-1.728-6.996-1.728-6.996-1.728-1.296-3.372-1.26-3.372-1.26l-.168.192c2.04.624 2.988 1.524 2.988 1.524-1.248-.684-2.472-1.02-3.612-1.152-.864-.096-1.692-.072-2.424.024l-.204.024c-.42.036-1.44.192-2.724.756-.444.204-.708.348-.708.348s.996-.948 3.156-1.572l-.12-.144s-1.644-.036-3.372 1.26c0 0-1.728 3.132-1.728 6.996 0 0 1.008 1.74 3.66 1.824 0 0 .444-.54.804-.996-1.524-.456-2.1-1.416-2.1-1.416l.336.204.048.036.047.027.014.006.047.027c.3.168.6.3.876.408.492.192 1.08.384 1.764.516.9.168 1.956.228 3.108.012.564-.096 1.14-.264 1.74-.516.42-.156.888-.384 1.38-.708 0 0-.6.984-2.172 1.428.36.456.792.972.792.972zm-5.58-5.604c-.684 0-1.224.6-1.224 1.332 0 .732.552 1.332 1.224 1.332.684 0 1.224-.6 1.224-1.332.012-.732-.54-1.332-1.224-1.332zm4.38 0c-.684 0-1.224.6-1.224 1.332 0 .732.552 1.332 1.224 1.332.684 0 1.224-.6 1.224-1.332 0-.732-.54-1.332-1.224-1.332z"/></svg>`;
+        icon.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" style="fill: ${isActive ? '#1d9bf0' : '#71767b'};"><path d="M19.54 0c1.356 0 2.46 1.104 2.46 2.472v21.528l-2.58-2.28-1.452-1.344-1.536-1.428.636 2.22h-13.608c-1.356 0-2.46-1.104-2.46-2.472v-16.224c0-1.368 1.104-2.472 2.46-2.472h16.08zm-4.632 15.672c2.652-.084 3.672-1.824 3.672-1.824 0-3.864-1.728-6.996-1.728-6.996-1.728-1.296-3.372-1.26-3.372-1.26l-.168.192c2.04.624 2.988 1.524 2.988 1.524-1.248-.684-2.472-1.02-3.612-1.152-.864-.096-1.692-.072-2.424.024l-.204.024c-.42.036-1.44.192-2.724.756-.444.204-.708.348-.708.348s.996-.948 3.156-1.572l-.12-.144s-1.644-.036-3.372 1.26c0 0-1.728 3.132-1.728 6.996 0 0 1.008 1.74 3.66 1.824 0 0 .444-.54.804-.996-1.524-.456-2.1-1.416-2.1-1.416l.336.204.048.036.047.027.014.006.047.027c.3.168.6.3.876.408.492.192 1.08.384 1.764.516.9.168 1.956.228 3.108.012.564-.096 1.14-.264 1.74-.516.42-.156.888-.384 1.38-.708 0 0-.6.984-2.172 1.428.36.456.792.972.792.972zm-5.58-5.604c-.684 0-1.224.6-1.224 1.332 0 .732.552 1.332 1.224 1.332.684 0 1.224-.6 1.224-1.332.012-.732-.54-1.332-1.224-1.332zm4.38 0c-.684 0-1.224.6-1.224 1.332 0 .732.552 1.332 1.224 1.332.684 0 1.224-.6 1.224-1.332 0-.732-.54-1.332-1.224-1.332z"/></svg>`;
         
         // Create status text
         const statusText = document.createElement('span');
-        statusText.style.cssText = `font-size: 13px; color: ${isEnabled && isConfigured ? '#1d9bf0' : '#71767b'}; font-weight: 500;`;
-        statusText.textContent = isEnabled && isConfigured ? 'Active' : (!isConfigured ? 'Not configured' : 'Disabled');
+        statusText.style.cssText = `font-size: 13px; color: ${isActive ? '#1d9bf0' : '#71767b'}; font-weight: 500;`;
+        if (isReply && isEnabled && isConfigured && !includeReplies) {
+            statusText.textContent = 'Replies disabled';
+        } else {
+            statusText.textContent = isActive ? 'Active' : (!isConfigured ? 'Not configured' : 'Disabled');
+        }
         
         indicator.appendChild(icon);
         indicator.appendChild(statusText);
         
         // Add tooltip
-        indicator.title = `Discord webhook ${isEnabled && isConfigured ? 'active' : (!isConfigured ? 'not configured' : 'disabled')} for @${currentAccountName || 'unknown'}`;
+        let tooltipText = '';
+        if (isReply && isEnabled && isConfigured && !includeReplies) {
+            tooltipText = `Discord webhook disabled for replies - @${currentAccountName || 'unknown'}`;
+        } else {
+            tooltipText = `Discord webhook ${isActive ? 'active' : (!isConfigured ? 'not configured' : 'disabled')} for @${currentAccountName || 'unknown'}`;
+        }
+        indicator.title = tooltipText;
         
         // Add click handler to open settings
         indicator.addEventListener('click', (e) => {
