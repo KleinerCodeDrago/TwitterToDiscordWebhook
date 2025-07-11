@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.1.1
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
@@ -842,6 +842,13 @@
             button.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" style="fill: currentColor;"><path d="M19.54 0c1.356 0 2.46 1.104 2.46 2.472v21.528l-2.58-2.28-1.452-1.344-1.536-1.428.636 2.22h-13.608c-1.356 0-2.46-1.104-2.46-2.472v-16.224c0-1.368 1.104-2.472 2.46-2.472h16.08zm-4.632 15.672c2.652-.084 3.672-1.824 3.672-1.824 0-3.864-1.728-6.996-1.728-6.996-1.728-1.296-3.372-1.26-3.372-1.26l-.168.192c2.04.624 2.988 1.524 2.988 1.524-1.248-.684-2.472-1.02-3.612-1.152-.864-.096-1.692-.072-2.424.024l-.204.024c-.42.036-1.44.192-2.724.756-.444.204-.708.348-.708.348s.996-.948 3.156-1.572l-.12-.144s-1.644-.036-3.372 1.26c0 0-1.728 3.132-1.728 6.996 0 0 1.008 1.74 3.66 1.824 0 0 .444-.54.804-.996-1.524-.456-2.1-1.416-2.1-1.416l.336.204.048.036.047.027.014.006.047.027c.3.168.6.3.876.408.492.192 1.08.384 1.764.516.9.168 1.956.228 3.108.012.564-.096 1.14-.264 1.74-.516.42-.156.888-.384 1.38-.708 0 0-.6.984-2.172 1.428.36.456.792.972.792.972zm-5.58-5.604c-.684 0-1.224.6-1.224 1.332 0 .732.552 1.332 1.224 1.332.684 0 1.224-.6 1.224-1.332.012-.732-.54-1.332-1.224-1.332zm4.38 0c-.684 0-1.224.6-1.224 1.332 0 .732.552 1.332 1.224 1.332.684 0 1.224-.6 1.224-1.332 0-.732-.54-1.332-1.224-1.332z"/></svg>';
             
             button.addEventListener('click', () => {
+                // Remove old settings UI if exists
+                const oldSettings = document.getElementById('discord-webhook-settings');
+                if (oldSettings) {
+                    oldSettings.remove();
+                }
+                // Recreate settings UI to ensure current account is selected
+                createSettingsUI();
                 document.getElementById('discord-webhook-settings').style.display = 'block';
             });
 
@@ -938,6 +945,9 @@
             
             document.getElementById('discord-webhook-settings').style.display = 'none';
             
+            // Update status indicator if it exists
+            updateStatusIndicator();
+            
             if (config.webhookUrl && config.enabled) {
                 alert(`Discord webhook settings saved for @${accountName}!`);
             } else if (!config.enabled) {
@@ -955,6 +965,10 @@
                     delete accountConfigs[accountName];
                     GM_setValue('accountConfigs', accountConfigs);
                     document.getElementById('discord-webhook-settings').style.display = 'none';
+                    
+                    // Update status indicator if it exists
+                    updateStatusIndicator();
+                    
                     alert(`Configuration for @${accountName} has been deleted.`);
                 }
             }
@@ -966,6 +980,36 @@
         });
     }
 
+    // Update existing status indicator
+    function updateStatusIndicator() {
+        const indicator = document.getElementById('discord-status-indicator');
+        if (!indicator) return;
+        
+        // Get account config
+        const config = getCurrentAccountConfig();
+        const isConfigured = config && config.webhookUrl;
+        const isEnabled = config && config.enabled;
+        
+        // Update background
+        indicator.style.background = isEnabled && isConfigured ? 'rgba(29, 155, 240, 0.1)' : 'rgba(113, 118, 123, 0.1)';
+        
+        // Update icon color
+        const icon = indicator.querySelector('svg');
+        if (icon) {
+            icon.style.fill = isEnabled && isConfigured ? '#1d9bf0' : '#71767b';
+        }
+        
+        // Update status text
+        const statusText = indicator.querySelector('span');
+        if (statusText) {
+            statusText.style.color = isEnabled && isConfigured ? '#1d9bf0' : '#71767b';
+            statusText.textContent = isEnabled && isConfigured ? 'Active' : (!isConfigured ? 'Not configured' : 'Disabled');
+        }
+        
+        // Update tooltip
+        indicator.title = `Discord webhook ${isEnabled && isConfigured ? 'active' : (!isConfigured ? 'not configured' : 'disabled')} for @${currentAccountName || 'unknown'}`;
+    }
+    
     // Visual status indicator for tweet compose window
     function addStatusIndicator() {
         // Check if we have current account name
@@ -1014,6 +1058,13 @@
         // Add click handler to open settings
         indicator.addEventListener('click', (e) => {
             e.stopPropagation();
+            // Remove old settings UI if exists
+            const oldSettings = document.getElementById('discord-webhook-settings');
+            if (oldSettings) {
+                oldSettings.remove();
+            }
+            // Recreate settings UI to ensure current account is selected
+            createSettingsUI();
             document.getElementById('discord-webhook-settings').style.display = 'block';
         });
         
