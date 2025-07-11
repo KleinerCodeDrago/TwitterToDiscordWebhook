@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.1.3
+// @version      1.1.4
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
@@ -1027,7 +1027,7 @@
         const statusText = indicator.querySelector('span');
         if (statusText) {
             statusText.style.color = isActive ? '#1d9bf0' : '#71767b';
-            if (isReply && isEnabled && isConfigured && !includeReplies) {
+            if (isReply && isEnabled && isConfigured && includeReplies === false) {
                 statusText.textContent = 'Replies disabled';
             } else {
                 statusText.textContent = isActive ? 'Active' : (!isConfigured ? 'Not configured' : 'Disabled');
@@ -1036,7 +1036,7 @@
         
         // Update tooltip
         let tooltipText = '';
-        if (isReply && isEnabled && isConfigured && !includeReplies) {
+        if (isReply && isEnabled && isConfigured && includeReplies === false) {
             tooltipText = `Discord webhook disabled for replies - @${currentAccountName || 'unknown'}`;
         } else {
             tooltipText = `Discord webhook ${isActive ? 'active' : (!isConfigured ? 'not configured' : 'disabled')} for @${currentAccountName || 'unknown'}`;
@@ -1089,7 +1089,7 @@
         // Create status text
         const statusText = document.createElement('span');
         statusText.style.cssText = `font-size: 13px; color: ${isActive ? '#1d9bf0' : '#71767b'}; font-weight: 500;`;
-        if (isReply && isEnabled && isConfigured && !includeReplies) {
+        if (isReply && isEnabled && isConfigured && includeReplies === false) {
             statusText.textContent = 'Replies disabled';
         } else {
             statusText.textContent = isActive ? 'Active' : (!isConfigured ? 'Not configured' : 'Disabled');
@@ -1100,7 +1100,7 @@
         
         // Add tooltip
         let tooltipText = '';
-        if (isReply && isEnabled && isConfigured && !includeReplies) {
+        if (isReply && isEnabled && isConfigured && includeReplies === false) {
             tooltipText = `Discord webhook disabled for replies - @${currentAccountName || 'unknown'}`;
         } else {
             tooltipText = `Discord webhook ${isActive ? 'active' : (!isConfigured ? 'not configured' : 'disabled')} for @${currentAccountName || 'unknown'}`;
