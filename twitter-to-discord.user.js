@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter to Discord Webhook
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
+// @version      1.1.3
 // @description  Automatically post your tweets to Discord via webhook
 // @author       You
 // @match        https://twitter.com/*
@@ -241,7 +241,7 @@
             
             // Add event listener for successful response
             xhr.addEventListener('load', function() {
-                if (xhr.status === 200 && isEnabled && webhookUrl) {
+                if (xhr.status === 200) {
                     try {
                         const response = JSON.parse(xhr.responseText);
                         const requestData = JSON.parse(xhr._requestData);
